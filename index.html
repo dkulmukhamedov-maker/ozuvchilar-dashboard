@@ -233,14 +233,15 @@ async function loadData() {
     for (let i = 1; i < dRows.length; i++) {
       const r = {};
       dHeaders.forEach((h,j) => r[h] = dRows[i][j]?.replace(/"/g,'') || '');
+      const pf = v => parseFloat((v||'').replace(',','.')) || null;
       if (r['Участник']) allData.push({
         date:     r['Дата']?.slice(0,10) || '',
         name:     r['Участник'],
-        weight:   parseFloat(r['Вес (кг)']) || null,
-        calories: parseFloat(r['Калории']) || null,
-        protein:  parseFloat(r['Белки']) || null,
-        fat:      parseFloat(r['Жиры']) || null,
-        carbs:    parseFloat(r['Углеводы']) || null,
+        weight:   pf(r['Вес (кг)']),
+        calories: pf(r['Калории']),
+        protein:  pf(r['Белки']),
+        fat:      pf(r['Жиры']),
+        carbs:    pf(r['Углеводы']),
       });
     }
 
