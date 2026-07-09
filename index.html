@@ -191,8 +191,9 @@ td{padding:12px 16px;white-space:nowrap}
 // data.json публикуется ботом в этот же репозиторий после
 // каждой записи в Google Sheets — сайт всегда актуален.
 // =====================================================
-// raw.githubusercontent обновляется сразу после коммита — не ждёт сборки Pages
-const DATA_URL = 'https://raw.githubusercontent.com/dkulmukhamedov-maker/ozuvchilar-dashboard/main/data.json';
+// Основной источник — GitHub API (кеш ≤60 сек), запасной — raw CDN (кеш ≤5 мин)
+const DATA_API_URL = 'https://api.github.com/repos/dkulmukhamedov-maker/ozuvchilar-dashboard/contents/data.json?ref=main';
+const DATA_RAW_URL = 'https://raw.githubusercontent.com/dkulmukhamedov-maker/ozuvchilar-dashboard/main/data.json';
 const GROUP_NAME = 'Озувчилар группаси';
 const REFRESH_MS = 3 * 60 * 1000; // автообновление каждые 3 минуты
 // =====================================================
@@ -240,12 +241,24 @@ function medal(rank) {
   return `<span class="rank-num">${rank}</span>`;
 }
 
+async function fetchPayload() {
+  // 1) GitHub API — свежесть ≤60 сек
+  try {
+    const r = await fetch(DATA_API_URL, {
+      cache: 'no-store',
+      headers: { 'Accept': 'application/vnd.github.raw+json' }
+    });
+    if (r.ok) return await r.json();
+  } catch(e) { /* переходим к запасному источнику */ }
+  // 2) raw CDN — работает всегда, но кеш до 5 минут
+  const r2 = await fetch(DATA_RAW_URL + '?t=' + Date.now(), { cache: 'no-store' });
+  if (!r2.ok) throw new Error('HTTP ' + r2.status);
+  return await r2.json();
+}
+
 async function loadData() {
   try {
-    // Кеш обходим параметром t — иначе GitHub Pages/браузер отдают старые данные
-    const dataResp = await fetch(DATA_URL + '?t=' + Date.now(), { cache: 'no-store' });
-    if (!dataResp.ok) throw new Error('HTTP ' + dataResp.status);
-    const payload = await dataResp.json();
+    const payload = await fetchPayload();
 
     const dRows = payload.data || [];
     penaltyRows = payload.penalties || [];
