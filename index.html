@@ -117,6 +117,7 @@ td{padding:12px 16px;white-space:nowrap}
   <button class="nav-btn active" onclick="showTab('rating')">🏆 Рейтинг</button>
   <button class="nav-btn" onclick="showTab('tempo')">⚡ Темп</button>
   <button class="nav-btn" onclick="showTab('kbzhu')">🥗 КБЖУ</button>
+  <button class="nav-btn" onclick="showTab('penalty')">💸 Штрафы</button>
   <!-- Person tabs injected by JS -->
 </nav>
 
@@ -168,18 +169,35 @@ td{padding:12px 16px;white-space:nowrap}
     </div>
   </div>
 
+  <!-- PENALTY -->
+  <div class="tab-panel" id="tab-penalty">
+    <div class="section-title">💸 Штрафы <span style="font-size:12px;color:#6b6b9a;font-weight:400">30 000 сум за каждый день без отчёта (после 2 дней)</span></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Участник</th><th>Штрафных дней</th><th>Всего штраф</th><th>Последний штраф</th>
+        </tr></thead>
+        <tbody id="penalty-body"></tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- PERSON PANELS injected by JS -->
 </div>
 
 <script>
 // =====================================================
-// НАСТРОЙКИ — замените на свои значения
+// НАСТРОЙКИ
+// data.json публикуется ботом в этот же репозиторий после
+// каждой записи в Google Sheets — сайт всегда актуален.
 // =====================================================
-const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vREFejU340Q2jyM12ySDwM26jMYgY1U1rVkNFOgU4ebkCRmHiTEH4vUDVzGtMlUdTKUFmjFwRfusLYt/pub?gid=1836739327&single=true&output=csv';
+const DATA_URL = 'https://dkulmukhamedov-maker.github.io/ozuvchilar-dashboard/data.json';
 const GROUP_NAME = 'Озувчилар группаси';
+const REFRESH_MS = 3 * 60 * 1000; // автообновление каждые 3 минуты
 // =====================================================
 
 let allData = [];
+let penaltyRows = [];
 // Участники захардкожены — обновите веса и цели здесь
 const members = {
   'Шукрулло':        { start: 71,   goal: 65, since: '2026-07-06' },
@@ -223,12 +241,14 @@ function medal(rank) {
 
 async function loadData() {
   try {
-    const dataResp = await fetch(SHEET_CSV_URL);
-    const dataText = await dataResp.text();
+    // Кеш обходим параметром t — иначе GitHub Pages/браузер отдают старые данные
+    const dataResp = await fetch(DATA_URL + '?t=' + Date.now(), { cache: 'no-store' });
+    if (!dataResp.ok) throw new Error('HTTP ' + dataResp.status);
+    const payload = await dataResp.json();
 
-    // Parse data sheet
-    const dRows = parseCSV(dataText);
-    const dHeaders = dRows[0].map(h => h.replace(/"/g,''));
+    const dRows = payload.data || [];
+    penaltyRows = payload.penalties || [];
+    const dHeaders = dRows[0].map(h => (h||'').replace(/"/g,''));
     allData = [];
     for (let i = 1; i < dRows.length; i++) {
       const r = {};
@@ -246,16 +266,36 @@ async function loadData() {
     }
 
     document.getElementById('loading').style.display = 'none';
-    document.getElementById('subtitle').textContent =
-      `${GROUP_NAME} · Обновлено ${new Date().toLocaleDateString('ru-RU', {day:'2-digit',month:'2-digit',year:'numeric'})}`;
+    const upd = payload.updated
+      ? new Date(payload.updated).toLocaleString('ru-RU', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})
+      : new Date().toLocaleDateString('ru-RU', {day:'2-digit',month:'2-digit',year:'numeric'});
+    document.getElementById('subtitle').textContent = `${GROUP_NAME} · Данные от ${upd}`;
 
     buildDashboard();
   } catch(e) {
     document.getElementById('loading').innerHTML =
       `<div style="color:#f87171">Ошибка загрузки данных.<br><small>${e.message}</small><br><br>
-      <small style="color:#6b6b9a">Убедитесь, что таблица опубликована:<br>Файл → Опубликовать → CSV</small></div>`;
+      <small style="color:#6b6b9a">Данные появятся после первого отчёта в боте</small></div>`;
   }
 }
+
+// Удаляет всё, что построено из данных, чтобы можно было перестроить заново
+function resetDashboard() {
+  document.querySelectorAll('.person-btn').forEach(b => b.remove());
+  document.querySelectorAll('[id^="tab-person-"]').forEach(p => p.remove());
+  Object.values(personCharts).forEach(i => { if (i.chart) i.chart.destroy(); });
+  personCharts = {};
+}
+
+async function refreshData() {
+  const activePanel = document.querySelector('.tab-panel.active');
+  let active = activePanel ? activePanel.id.replace(/^tab-/, '') : 'rating';
+  resetDashboard();
+  await loadData();
+  if (!document.getElementById('tab-' + active)) active = 'rating';
+  showTab(active);
+}
+setInterval(refreshData, REFRESH_MS);
 
 function buildDashboard() {
   const nameSet = [...new Set(allData.map(r => r.name))];
@@ -316,7 +356,35 @@ function buildDashboard() {
   buildRating(ratingStats);
   buildTempo([...stats].sort((a,b) => (a.pace||0) - (b.pace||0)));
   buildKbzhu(stats.filter(s => s.avgCal));
+  buildPenalties();
   buildPersonTabs(stats);
+}
+
+function buildPenalties() {
+  const tbody = document.getElementById('penalty-body');
+  // penaltyRows: [Дата, Участник, Дней без отчёта, Штраф (сум)], первая строка — заголовки
+  const agg = {};
+  penaltyRows.slice(1).forEach(r => {
+    if (!r[1]) return;
+    const name = r[1];
+    const amount = parseFloat(String(r[3]||'0').replace(/\s/g,'').replace(',','.')) || 0;
+    if (!agg[name]) agg[name] = { days: 0, total: 0, last: '' };
+    agg[name].days += 1;
+    agg[name].total += amount;
+    if (r[0] > agg[name].last) agg[name].last = r[0];
+  });
+  const names = Object.keys(agg).sort((a,b) => agg[b].total - agg[a].total);
+  if (!names.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="no-data" style="padding:16px">Штрафов нет — все молодцы! 🎉</td></tr>';
+    return;
+  }
+  const fmtSum = n => n.toLocaleString('ru-RU') + ' сум';
+  tbody.innerHTML = names.map(n => `<tr>
+    <td><strong>${n}</strong></td>
+    <td class="days-val">${agg[n].days}</td>
+    <td class="val-red"><strong>${fmtSum(agg[n].total)}</strong></td>
+    <td class="days-val">${agg[n].last ? agg[n].last.slice(0,10) : '—'}</td>
+  </tr>`).join('');
 }
 
 function fmt(v, unit='кг') {
@@ -456,7 +524,7 @@ function renderPersonChart(name) {
   const data = info.rows.map(r => r.weight);
   const goalLine = info.rows.map(() => info.goal || null);
 
-  new Chart(canvas, {
+  info.chart = new Chart(canvas, {
     type: 'line',
     data: {
       labels,
