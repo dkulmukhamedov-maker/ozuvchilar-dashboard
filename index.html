@@ -191,7 +191,8 @@ td{padding:12px 16px;white-space:nowrap}
 // data.json публикуется ботом в этот же репозиторий после
 // каждой записи в Google Sheets — сайт всегда актуален.
 // =====================================================
-const DATA_URL = 'https://dkulmukhamedov-maker.github.io/ozuvchilar-dashboard/data.json';
+// raw.githubusercontent обновляется сразу после коммита — не ждёт сборки Pages
+const DATA_URL = 'https://raw.githubusercontent.com/dkulmukhamedov-maker/ozuvchilar-dashboard/main/data.json';
 const GROUP_NAME = 'Озувчилар группаси';
 const REFRESH_MS = 3 * 60 * 1000; // автообновление каждые 3 минуты
 // =====================================================
